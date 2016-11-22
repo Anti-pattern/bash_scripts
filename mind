@@ -1,0 +1,178 @@
+#!/bin/bash
+	# Pearce wrote it but it's not ready for prime time.
+	# Intended function is for taking notes/reminding usage of commands in succinct, easy to change/customize output.
+	# Converted to shell script once it got a bit obnoxious for a .bashrc function.
+
+	# No real installation needed.  It'll create a file called "mindfile" in $HOME/.mind/, and create those if they don't
+	# exist.  Suggest putting in /$HOME/bin and adding export PATH=$PATH":$HOME/bin" to $HOME/.bashrc
+
+	# Show stopping problems in current version:
+	# If you include a block of quoted text as an initial argument, grep throws a fit.
+	# See "mind -w "this is an entry" "other words"
+	# If a note matches precisely with an entry, the database will not behave as expected.
+	# For now, added "<entry> notes:" to start of all note entries.  Printing function hides with cut.
+	# Line 110 $(head -$linenumber $mindfile | tail -1 |cut -f2 -d:) \n" clearly not sanitized.  Consider case:
+	# mind -w youtube-dl "youtube-dl --prefer-free-formats -x --audio-quality 0 -o \"/home/abyss/userland/media/music/%(title)s.%(ext)s\" --no-playlist --restrict-filenames <VIDEO URL>
+	# Unexpected behavior when attempting to delete entry that does not exist or delete an entry twice.  Deletes everything!
+	# ^^^ Should be fixed, want to look for other odd/edge casese before removing though.
+	# Using : in the note causes anything after not to display(because of cut delim)
+
+	# Features to add
+	# Prompt mode.  Pass a -p and it does a prompt instead of needing quotes.
+	# Multi-line notes, multi-word entries.
+	# (!!!) List, pass a -l and it lists all entries in a greppable output.
+	# Easily and intuitively specify the file used as a database.  This might make it a genuinely useful/powerful tool.
+	# Maybe rewrite/compile in c?
+	# Change/decide on name?  "mind" being originally for "remind" as its intended purpose.
+	# Might be better as "ldb" (lazy database) or similar if above features work and becomes more general tool.
+	# -x that allows for mind -x <command> <arbitrary arguments> so you can pipe to bash with arguments.
+	# Implement long variable names. (getopt less portable gnu option, but getopts is built in to bash.  Possible workarounds/hacks.
+
+
+# This is what we do whenever 'help' is invoked.
+# Prints a bunch of text, essentially.  Make sure to exit every time mind_usage() is invoked so it never does anything else.
+
+mind_usage() { 
+
+printf "mind: For writing/reading short reminders on commands.
+mind v0.1
+Author: Pearce \"Raddest Man Alive\" DeFrieze (veryrealemail@127.0.0.1)
+Usage: mind <options> <command> <notes>
+
+OPTIONS:
+-w	: Write or replace a note for the specified command.  Must be 1 line, must be quoted if longer than 1 word.
+-wr	: Remove the entry and its note.  Displays what was deleted for easy accident recovery. :)
+-h	: Display this help.
+
+EXAMPLES:
+Typical usage as follows:
+\$ mind -w grep \"grep -ilr\"
+
+\$ mind grep
+grep -ilr
+
+\$ mind -wr grep
+Deleting entry grep.
+Used to contain:
+grep -ilr \n" 1>&2; 
+
+}
+
+# Some variables we'll use.
+# o used in getopts loop.
+# h is to find -h, for help.
+# p is to find -p, for prompt-mode (not yet implemented)
+# w is to find -w, for write mode. (Change the text, don't display or run it)
+# r is to find -r in -wr. (Deletes the entry/notes)
+# mindfile is the file we're using to store values.
+
+
+	
+# Start looking for options using getopts.
+# Getopts used instead of getopt as it's built into bash shell.
+while getopts ":hrw" o; do
+	case "${o}" in
+		h) mind_usage ; exit;;
+		r) r=true;;
+		w) w=true;;
+		*) mind_usage ; exit;;
+	esac
+done
+
+# If there are no arguments passed, show help.
+if [[ -z $* ]];	then
+	mind_usage
+	exit
+fi
+	# Sets $1 to be the first argument not caught by the above cases. $2 the second, etc.
+shift "$((OPTIND-1))"
+	if [[ -z $1 ]]; then
+	printf "Must specify a command or string to act on. See mind -h or --help.\n"
+	exit
+fi
+
+# There should not be more than 3 non option arguments.  This likely means the user doesn't understand how to use or is missing a closing quote.
+# So don't do anything else, and let them know what went wrong beyond just normal help.
+if [[ ! -z $3 ]]
+then
+	printf "Detected too many arguments, see mind -h\n(Did you forget quotation marks on the note?)\n";
+	exit
+fi
+	# Look for the mindfile.  Make it if it doesn't exist.
+mindfile="$HOME/.mind/mindfile"
+
+if [[ ! -e $mindfile ]]; then
+	printf "mindfile doesn't exist, creating at $mindfile\n"	
+	mkdir -p $HOME/.mind/
+	printf "No entry found.  Use mind -w <command> \"<notes>\" to create one!  Stay to one line, or things get *weird.*\n" >> $mindfile
+fi
+	# Not writing, so just print.
+if [[ -z $w ]]; then
+	# If they've included a second non option argument, they probably meant -w.
+	# If they didn't mean -w, I have no idea what they mean.
+	if [[ ! -z $2 ]]; then
+		printf "String to write included without -w option.  See mind -h or --help.\n"
+		exit
+	fi
+		# Find line number of $1, or command string.
+		# Use grep -xn, which finds an exact match for the entire line on the 'database' file
+		# Then, pipe the result to cut to get the line number only.
+		# Output is <linenumber>:<matchingtext> from file.  -f1 finds the "first half" of all text per line cut up by delimiter, : characters for -d:, so, line number.
+
+	linenumber="$(grep -xn $1 $mindfile |cut -f1 -d:)"
+	linenumber=$((linenumber + 1))
+	# FIX ME.  Have to redir stderr, unsafe calling in general.
+	printf "$(head -$linenumber $mindfile | tail -1 |cut -f2 -d:) \n" 2>/dev/null
+	exit
+fi
+	# They want to write a note!
+if [[ $w ]]; then
+	# They left notes blank.  Check could be smarter.  Meh.
+	if [[ -z $2 ]] && [[ -z $r ]]; then
+		printf "You didn't include anything to write.  Use mind -wr <entry> to blank an entry.\n"
+		exit
+	fi
+	# should really merge/clean this logic up
+	other_line_number="$(grep -xn $1 $mindfile |cut -f1 -d:)"
+	# They want to remove an entry.
+	# Don't interrupt, but print out a warning and the text so they can repair if they made a mistake.
+	if [[ $r ]]; then
+		# Input error checking.
+		# No command specified.
+		if [[ -z $1 ]]; then
+			printf "Must specify target command.  Usage 'mind -rw <command>'.  See mind -h.\n"
+			exit
+		fi
+		# Too many werds.
+		if [[ ! -z $2 ]]; then
+			printf "Cannot add notes to -rw command.  Use mind -w <command> <notes> to write, and mind -wr <command> to delete.\n"
+			exit
+		fi
+		# Doesn't exist.
+		if [[ -z $other_line_number ]]; then
+			printf "Cannot remove entry for $1, does not exist.\n"
+			exit
+		fi
+		printf "Deleting entry $1.\nUsed to contain:\n"
+		sed -i "${other_line_number}d" $mindfile
+		
+		# Assumes entry is only one line.  Also assumes that it was the following line, as that's the structure.
+		# Means we don't have to increment other_line_number, whole thing is one line shorter now.
+		printf "$(head -$other_line_number $mindfile | tail -1 |cut -f2 -d:)\n"
+		sed -i "${other_line_number}d" $mindfile
+		exit
+	fi
+	# No entry exists already, just append to end.		
+	if [[ -z "$(grep -xn $1 $mindfile)" ]]; then
+		printf "$1\n" >> $mindfile
+		printf "$1 notes:$2\n" >> $mindfile
+		exit
+	fi
+	# An entry exists already, warn then replace.
+	# Maybe force -r usage first?
+	other_line_number=$(($other_line_number + 1))
+	printf "Entry for $1 exists. Replacing\n$(head -$other_line_number $mindfile |tail -1|cut -f2 -d:)\nwith\n$2\n"
+	sed -i "${other_line_number}s/.*/$1 notes:$2/" $mindfile
+	exit
+	fi
+exit
