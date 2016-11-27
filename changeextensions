@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Author: Nathan DeFrieze
+# Way too trivial for a license.
+# Convert file extensions.
+# Takes 3 position arguments:
+# changeextensions <File extension to change> <File extension to change to> <File or directory to act on>
+
+if [[ "$1" == "help" || "$1" == "-help" || "$1" == "-h" || "$1" == "--help" || -z "$1" ]] ; then printf "Usage: changeextensions <File extension to change> <File extension to change to> <File or directory to act on>\\n" ; exit ; fi ;
+
+if [[ -z "$2" ]] ; then printf "No file extension specified. Try 'changeextensions --help' for usage.\\n" ; exit ; fi ;
+if [[ -z "$3" ]] ; then printf "No path specified. Try 'changeextensions --help' for usage.\\n" ; exit ; fi ;
+if [[ "$4" ]] ; then printf "Too many arguments. Try 'changeextensions --help' for usage.\\n" ; exit ; fi ;
+
+for i in $3* ; do oldname=$i ; i=(${i//.$1/.$2}) ; mv -n $oldname $i 2>/dev/null ; if [[ $i == *$2 && $oldname != *$2 ]] ; then echo "$i" ; else printf "" ; fi ; done
